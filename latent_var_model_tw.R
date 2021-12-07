@@ -18,50 +18,27 @@ control <- read_csv('data/international_controls.csv') %>%
          has_new_cases = ifelse(avg_new_cases > 0, 1, 0),
          log_avg_new_cases = ifelse(has_new_cases, log(avg_new_cases), 0),
          has_new_deaths = ifelse(avg_new_deaths > 0, 1, 0),
-         log_avg_new_deaths = ifelse(has_new_deaths, log(avg_new_deaths), 0))
+         log_avg_new_deaths = ifelse(has_new_deaths, log(avg_new_deaths), 0)) %>%
+  filter(continent == 'Asia')
 
-X <- model.matrix(~ continent + vaccination_info + has_new_cases +
+X <- model.matrix(~ vaccination_info + has_new_cases +
                     log_population_density + median_age + 
                     log_gdp_per_capita +
                     time*log_avg_new_cases + perc_fully_vaccinated,
                   data = control)
-X_scaled <- scale(X[,9:15])
-X[,9:15] <- X_scaled
+
+scale_idx <- 4:10
+X_scaled <- scale(X[,scale_idx])
+X[,scale_idx] <- X_scaled
 y <- control$int_travel_controls + 1
-
-
-# Gibb's sampler, uniform priors on cutoffs -------------------------------
-
-n <- nrow(X)
-J <- length(unique(control$int_travel_controls)) # Number of groups
-ndraws <- 1000
-draws <- matrix(0, nrow = ndraws, ncol = ncol(X) + J-2)
-gamma <- c(-Inf, 0, 0.34, 0.8, 1.44, Inf)
-est_gamma <- 3:(length(gamma) - 1)
-beta <- rep(0.5, ncol(X))
-
-for (i in 1:ndraws) {
-  z <- rtruncnorm(n, a = gamma[y], b = gamma[y+1], X%*%beta)
-  sd_beta <- solve(t(X)%*%X)
-  beta <- rnorm(sd_beta %*% t(X)%*%z, sd_beta)
-  for (j in est_gamma) {
-    gamma[j] <- runif(1, max(max(z[z >= gamma[j-1] & z < gamma[j]]), gamma[j-1]),
-                      min(min(z[z >= gamma[j] & z < gamma[j+1]]), gamma[j+1]))
-  }
-  draws[i,] <- c(beta, gamma[est_gamma])
-}
-
-coda::effectiveSize(draws)
-plot(draws[,16], type = 'l')
 
 
 # ROUND 2 -----------------------------------------------------------------
 
 doit <- function(ndraws = 10000, warmup = 1000) {
   # Stuff for cutpoints
-  cuts <- c(-Inf, 0, # Q: Why the zero? Guess: Identifiability issues if estimating; only need to estimate three, not four
-            cumsum(prop.table(table(y)))[-1] %>%
-              qnorm(., mean = 1)) # I am just picking an initial value for cutpoints, right?
+  # Pick initial value for cutpoints
+  cuts <- c(-Inf, 0, 0.2, 0.7, 1.2, Inf)
   est.cuts <- 3:(length(cuts)-1)
   nc <- length(est.cuts)
   trans.cuts <- log( c(cuts[est.cuts[1]], diff(cuts[est.cuts])) )
@@ -135,9 +112,9 @@ draws <- draws[idx,]
 # Diagnostic Plots --------------------------------------------------------
 
 coda::effectiveSize(draws)
-plot(draws[,16], type = 'l')
-plot(draws[,17], type = 'l')
-plot(draws[,18], type = 'l')
+plot(draws[,11], type = 'l')
+plot(draws[,12], type = 'l')
+plot(draws[,13], type = 'l')
 apply(draws, 2, mean)
 
 
@@ -146,9 +123,8 @@ apply(draws, 2, mean)
 ci <- apply(draws, 2, function(x) quantile(x, c(0.025, 0.975))) %>%
   t() %>%
   round(3)
-tbl_names <- colnames(draws) %>%
-  str_replace('continent', 'Continent: ')
-tbl_names[7:18] <- c('Reporting Full Vaccinations', 'Has New Cases',
+tbl_names <- c('(Intercept)',
+                     'Reporting Full Vaccinations', 'Has New Cases',
                      'Log(Population Density)', 'Median Age',
                      'Log(GDP Per Capita)', 'Time (1 = Jan 2020)',
                      'Log(Average New Cases)', 'Proportion Fully Vaccinated',
@@ -160,8 +136,6 @@ tbl_ci <- data.frame(coef = tbl_names,
                      lower = ci[,1],
                      upper = ci[,2])
 rownames(tbl_ci) <- NULL
-
-plot(draws[,18], type = 'l')
 
 # Prediction: Taiwan in the future
 
@@ -190,7 +164,7 @@ plot_grid(p1, p2, p3, nrow = 3)
 
 # Prediction
 tw_attrs <- control_tw[1,]
-X_new <- c(1, 1, 0, 0, 0, 0, 1, 1, 
+X_new <- c(1, 1, 1, 
            tw_attrs$log_population_density,
            tw_attrs$median_age,
            tw_attrs$log_gdp_per_capita,
@@ -198,14 +172,14 @@ X_new <- c(1, 1, 0, 0, 0, 0, 1, 1,
            2,
            0.8,
            28*2)
-X_new[9:15] <- (X_new[9:15] - attr(X_scaled, "scaled:center")) / attr(X_scaled, "scaled:scale")
+X_new[scale_idx] <- (X_new[scale_idx] - attr(X_scaled, "scaled:center")) / attr(X_scaled, "scaled:scale")
 
 
 prob_open <- apply(draws, 1, function(pars) {
-  beta <- pars[1:15]
+  beta <- pars[1:length(X_new)]
   # The area under the curve less than this value is the probability
   #  that Taiwan's policies will be at most extreme screening
-  delta3 <- pars[16] 
+  delta3 <- pars[length(X_new)+1] 
   muhat <- X_new %*% beta
   pnorm(delta3, muhat, 1)
 })

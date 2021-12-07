@@ -50,3 +50,4 @@ covid %>%
   facet_wrap(~ continent, ncol = 3) +
   scale_color_brewer(type = 'qual', palette = 3) +
   theme_bw()
+# Consider marking the US

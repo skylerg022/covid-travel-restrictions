@@ -17,12 +17,12 @@ The data for this analysis comes mainly from the Oxford COVID-19 Government Resp
 
 The chief question I hope to answer is the probability that Taiwan's international travel policy is less than or equal to "Screening." Additional questions may be whether there is a significant difference in travel controls among different continents and whether the number of COVID-related deaths in a month or the vaccination rate in a country significantly affect travel policy.
 
-I plan to answer these questions by modeling my ordinal data using a latent variable Bayesian probit model. Let $Y_{ij}$ be the international travel control level of country $i$ on month $j$, where $j$ is the number of months after December 2020. Then
+I plan to answer these questions by modeling my ordinal data using a latent variable Bayesian probit model. Let $Y_{ij}$ be the international travel control level of country $i$ on month $j$, where $j = 1$ is January 2020. Then
 
 \begin{align*}
   Y_{ij} &= k \text{   if } \delta_{k-1} < Z_{ij} \le \delta_k \\
   Z_{ij} &= X_{ij}\beta + \epsilon_{ij} \\
-  \epsilon &\sim N(0, V),
+  \epsilon &\sim N(0, I),
 \end{align*}
 
 where V is a block-diagonal AR(2) covariance matrix blocked by country and
@@ -30,7 +30,9 @@ where V is a block-diagonal AR(2) covariance matrix blocked by country and
 \begin{align*}
   X_{ij}\beta = \beta_0 &+ ContNA_i\beta_1 + ContEU_i\beta_2 \\
                         &+ ContAS_i\beta_3 + ContSA_i\beta_4 \\
-                        &+ ContOC_i\beta_5 + GDP_i\beta_6 \\
-                        &+ PopDens_i\beta_7 + Deaths_{ij}\beta_8 \\
-                        &+ VaccineRate_{ij}\beta_9
+                        &+ ContOC_i\beta_5 + FullVaccineFlag_i\beta_6 \\
+                        &+ NewCasesFlag_i\beta_7 + Log(PopDens_i)\beta_8 \\
+                        &+ MedianAge_i\beta_9 + Log(GDPperCapita_i)\beta_{10} \\
+                        &+ j\beta_{11} + Log(AvgNewCases_i)\beta_{12} \\
+                        &+ PropFullyVaccinated_i\beta_{13} + j \times Log(AvgNewCases_i)\beta_{14}
 \end{align*}

@@ -22,15 +22,16 @@ covid %>%
 
 # Visualize 
 covid %>%
-  mutate(Taiwan = ifelse(location == 'Taiwan', 'Yes', 'No')) %>%
+  mutate(Taiwan = ifelse(location %in% c('Taiwan', 'United States'), 'Yes', 'No')) %>%
   ggplot(aes(x = time, y = jitter(int_travel_controls), group = location,
              col = Taiwan)) +
   geom_line(alpha = 0.5, size = 1) +
   facet_wrap(~ continent, ncol = 3) +
-  scale_color_brewer(type = 'qual', palette = 3) +
+  scale_color_manual(values = c('lightblue', 'orange')) +
   labs(x = 'Month (1 = Jan 2020)',
        y = 'International Travel Control Level') +
-  theme_bw()
+  theme_bw() +
+  theme(legend.position = 'none')
 
 # Taiwan response across time
 covid %>%

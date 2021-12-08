@@ -34,16 +34,18 @@ y <- control$int_travel_controls + 1
 
 n <- nrow(X)
 J <- length(unique(control$int_travel_controls)) # Number of groups
-ndraws <- 1000
+ndraws <- 5000
 draws <- matrix(0, nrow = ndraws, ncol = ncol(X) + J-2)
 gamma <- c(-Inf, 0, 0.34, 0.8, 1.44, Inf)
+gamma <- c(-Inf, 0, 1.1, 1.76, 2.7, Inf)
 est_gamma <- 3:(length(gamma) - 1)
 beta <- rep(0.5, ncol(X))
 
 for (i in 1:ndraws) {
   z <- rtruncnorm(n, a = gamma[y], b = gamma[y+1], X%*%beta)
   sd_beta <- solve(t(X)%*%X)
-  beta <- rnorm(sd_beta %*% t(X)%*%z, sd_beta)
+  beta <- rmvnorm(1, sd_beta %*% t(X)%*%z, sd_beta) %>%
+    t()
   for (j in est_gamma) {
     gamma[j] <- runif(1, max(max(z[z >= gamma[j-1] & z < gamma[j]]), gamma[j-1]),
                       min(min(z[z >= gamma[j] & z < gamma[j+1]]), gamma[j+1]))
@@ -53,20 +55,37 @@ for (i in 1:ndraws) {
 
 coda::effectiveSize(draws)
 plot(draws[,16], type = 'l')
+plot(draws[,17], type = 'l')
+plot(draws[,18], type = 'l')
+
 
 
 # ROUND 2 -----------------------------------------------------------------
 
-doit <- function(ndraws = 10000, warmup = 1000) {
+doit <- function(ndraws = 10000, warmup = 1000, eps = 0.1) {
   # Stuff for cutpoints
-  cuts <- c(-Inf, 0, # Q: Why the zero? Guess: Identifiability issues if estimating; only need to estimate three, not four
-            cumsum(prop.table(table(y)))[-1] %>%
-              qnorm(., mean = 1)) # I am just picking an initial value for cutpoints, right?
+  # cuts <- c(-Inf, 0, # Q: Why the zero? Guess: Identifiability issues if estimating; only need to estimate three, not four
+  #           cumsum(prop.table(table(y)))[-1] %>%
+  #             qnorm(., mean = 1)) # I am just picking an initial value for cutpoints, right?
+  # cuts <- c(-Inf, 0, 0.5, 1.1, 2.2, Inf)
+  cuts <- c(-Inf, 0, 1, 1.5, 2.5, Inf) # Round 2 estimate
+  # cuts <- c(-Inf, 0, 25, 50, 100, Inf)
   est.cuts <- 3:(length(cuts)-1)
   nc <- length(est.cuts)
   trans.cuts <- log( c(cuts[est.cuts[1]], diff(cuts[est.cuts])) )
-  eps <- 6
-  prop.var <- eps*diag(nc)
+  # eps <- c(0.2, 0.2, 0.5)
+  # eps <- 0.1
+  
+  # prop.var <- matrix(c(eps, eps/3, eps/3,
+  #                      eps/3, eps, eps/3,
+  #                      eps/3, eps/3, eps),
+  #                    nrow = 3, byrow = TRUE)
+  b <- 0.04
+  prop.var.chol <- matrix(c(sqrt(eps),  b,         b,
+                            0,          sqrt(eps), b,
+                            0,          0,         sqrt(eps)),
+                          nrow = 3, byrow = TRUE)
+  prop.var <- t(prop.var.chol) %*% prop.var.chol
   accept <- 0
   
   n <- nrow(X)
@@ -78,13 +97,14 @@ doit <- function(ndraws = 10000, warmup = 1000) {
     # Gibbs sample of z's and betas
     z <- rtruncnorm(n, a = cuts[y], b = cuts[y+1], X%*%beta)
     sd_beta <- solve(t(X)%*%X)
-    beta <- rnorm(sd_beta %*% t(X)%*%z, sd_beta)
+    beta <- rmvnorm(1, mean = sd_beta %*% t(X)%*%z, sigma = sd_beta) %>%
+      t()
     
     # Metropolis algorithm for sampling cutpoints
     prop.cuts <- cuts
     prop.trans <- trans.cuts + t(chol(prop.var))%*%rnorm(nc) #MVN Draw
     prop.cuts[est.cuts] <- cumsum(exp(prop.trans))
-    
+
     ## Evaluate the likelihood under proposed cutpoints
     mn <- X%*%beta
     # Proposed
@@ -111,10 +131,46 @@ doit <- function(ndraws = 10000, warmup = 1000) {
       accept <- accept + 1
     }
     
+    
+    # # SEPARATE UPDATES TO CUTPOINTS
+    # # Metropolis algorithm for sampling cutpoints
+    # prop.cuts <- cuts
+    # prop.trans <- trans.cuts
+    # for (j in 1:nc) {
+    #   prop.trans[j] <- rnorm(1, sd=eps[j])
+    #   prop.cuts[est.cuts] <- cumsum(sum(exp(prop.trans)))
+    #   
+    #   ## Evaluate the likelihood under proposed cutpoints
+    #   mn <- X%*%beta
+    #   # Proposed
+    #   lwr <- prop.cuts[y]
+    #   upr <- prop.cuts[y+1]
+    #   prop.prob <- log(pnorm(upr, mn, 1) - pnorm(lwr, mn, 1)) # Q: What if I get -Inf?
+    #   sum(prop.prob == -Inf)
+    #   prop.prob[prop.prob == -Inf] <- -1e99
+    #   # Current
+    #   lwr <- cuts[y]
+    #   upr <- cuts[y+1]
+    #   cur.prob <- log(pnorm(upr, mn, 1) - pnorm(lwr, mn, 1))
+    #   sum(cur.prob == -Inf)
+    #   cur.prob[cur.prob == -Inf] <- -1e99
+    #   llike.diff <- sum(prop.prob - cur.prob) #, na.rm = TRUE) # I am removing those observations that are infinity minus inf. Is this a problem?
+    #   llike.diff
+    #   ## Evaluate the Metropolis-Hasting Ratio
+    #   MH <- llike.diff + sum(dnorm(prop.trans, 0, 10, log=TRUE) -
+    #                            dnorm(trans.cuts, 0, 10, log=TRUE))
+    #   ## Determine whether to accept or reject
+    #   if (log(runif(1)) < MH) {
+    #     cuts <- prop.cuts
+    #     trans.cuts <- prop.trans
+    #     accept[j] <- accept[j] + 1
+    #   }
+    # }
+    
     draws[i,] <- c(beta, cuts[est.cuts])
   }
   
-  cat(sprintf('Acceptance rate: %.2f\n', accept/ndraws))
+  cat('Acceptance rate:', accept/ndraws, '\n')
   
   draws <- draws[-(1:warmup),]
   colnames(draws) <- c(colnames(X), 
@@ -123,7 +179,7 @@ doit <- function(ndraws = 10000, warmup = 1000) {
 }
 
 # Run multiple chains
-draws <- replicate(4, doit(ndraws = 10000, warmup = 1000),
+draws <- replicate(4, doit(ndraws = 20000, warmup = 2000, eps = 0.005),
                    simplify = FALSE) %>%
   do.call(rbind, .)
 
@@ -135,6 +191,9 @@ draws <- draws[idx,]
 # Diagnostic Plots --------------------------------------------------------
 
 coda::effectiveSize(draws)
+acf(draws[,16])
+acf(draws[,17])
+acf(draws[,18])
 plot(draws[,16], type = 'l')
 plot(draws[,17], type = 'l')
 plot(draws[,18], type = 'l')
@@ -150,7 +209,7 @@ tbl_names <- colnames(draws) %>%
   str_replace('continent', 'Continent: ')
 tbl_names[7:18] <- c('Reporting Full Vaccinations', 'Has New Cases',
                      'Log(Population Density)', 'Median Age',
-                     'Log(GDP Per Capita)', 'Time (1 = Jan 2020)',
+                     'Log(GDP Per Capita)', 'Month (1 = Jan 2020)',
                      'Log(Average New Cases)', 'Proportion Fully Vaccinated',
                      'Time:Log(Average New Cases)', 'Delta3',
                      'Delta4', 'Delta5')
@@ -160,8 +219,7 @@ tbl_ci <- data.frame(coef = tbl_names,
                      lower = ci[,1],
                      upper = ci[,2])
 rownames(tbl_ci) <- NULL
-
-plot(draws[,18], type = 'l')
+write_csv(tbl_ci, 'data/tbl_ci.csv')
 
 # Prediction: Taiwan in the future
 
@@ -212,3 +270,38 @@ prob_open <- apply(draws, 1, function(pars) {
 
 mean(prob_open)
 quantile(prob_open, c(0.025, 0.975))
+ggplot() +
+  geom_histogram(aes(prob_open, y = ..density..),
+                 col = 'black',
+                 fill = 'royalblue') +
+  theme_bw() +
+  labs(x = 'P(Y <= 1) (Screening or Less)',
+       y = 'Density')
+
+
+
+
+
+# Stan? -------------------------------------------------------------------
+
+## Settings for Stan
+nCores <- parallel::detectCores() - 1
+options(mc.cores = nCores)          # Use all available cores.
+rstan_options(auto_write = TRUE)    # Cache compiled code.
+rstan_options(javascript = FALSE)     # FIXME: Effort to reduce RStudio Stan probs. May be helping.
+
+# Fit Stan model
+m <- stan_model(model_code = readLines("model5_simple.stan"))
+data <- list(N = N,
+             y = y, 
+             X = X[,1, drop = FALSE],
+             mu_0 = mu_0,
+             tau2_0 = tau2_0)
+fit <- sampling(m, data = data,
+                iter = 500, warmup = 0,
+                chains = 1) #nCores)
+fit_extr <- extract(fit)
+
+plot(fit_extr$beta[,1], type = 'l')
+coda::effectiveSize(fit_extr$beta)
+

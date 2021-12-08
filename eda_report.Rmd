@@ -1,0 +1,103 @@
+---
+title: 'EDA: COVID-19 and International Travel Restrictions'
+author: "Skyler Gray"
+date: "12/7/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE)
+
+# Initial EDA
+
+library(tidyverse)
+library(flextable)
+library(cowplot)
+
+# set working directory if necessary
+if (rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+}
+
+# Read in data
+covid <- read_csv('data/international_controls.csv')
+
+# Read in results
+tbl_ci <- read_csv('data/tbl_ci.csv')
+
+old_theme <- theme_set(theme_bw())
+
+```
+
+```{r}
+# Number of countries in analysis by continent
+covid %>%
+  group_by(continent) %>%
+  summarize(n_countries = length(unique(location)),
+            n = n())%>%
+  flextable() %>%
+  set_header_labels(continent = 'Continent',
+                    n_countries = 'Number of Countries') %>%
+  autofit() %>%
+  theme_zebra()
+```
+
+
+```{r}
+# Visualize 
+covid %>%
+  mutate(Taiwan = ifelse(location %in% c('Taiwan', 'United States'), 'Yes', 'No')) %>%
+  ggplot(aes(x = time, y = jitter(int_travel_controls), group = location,
+             col = Taiwan)) +
+  geom_line(alpha = 0.5, size = 1) +
+  facet_wrap(~ continent, ncol = 3) +
+  scale_color_manual(values = c('grey', 'red')) +
+  labs(x = 'Month (1 = Jan 2020)',
+       y = 'International Travel Control Level') +
+  theme(legend.position = 'none')
+```
+
+
+```{r}
+control_tw <- covid %>%
+  filter(location %in% c('United States', 'Taiwan'))
+p1 <- control_tw %>%
+  ggplot(aes(time, log(avg_new_cases), col = location)) +
+  geom_line() +
+  labs(x = 'Month (1 = Jan 2020)',
+       y = 'Log(Average New Cases)',
+       col = 'Country')
+p2 <- control_tw %>%
+  ggplot(aes(time, perc_fully_vaccinated, col = location)) +
+  geom_line() +
+  labs(x = 'Month (1 = Jan 2020)',
+       y = 'Proportion Fully Vaccinated',
+       col = 'Country')
+p3 <- control_tw %>%
+  ggplot(aes(time, int_travel_controls, col = location)) +
+  geom_line() +
+  labs(x = 'Month (1 = Jan 2020)',
+       y = 'Int. Travel Control Status',
+       col = 'Country') +
+  scale_y_continuous(breaks= c(1, 2, 3, 4, 5))
+
+# Plot
+plot_grid(p1, p2, p3, nrow = 3)
+```
+
+
+# Results
+
+```{r}
+tbl_ci %>%
+  flextable() %>%
+  set_header_labels(coef = 'Coefficient',
+                    est = 'Estimate',
+                    lower = 'Lower 95%',
+                    upper = 'Upper 95%') %>%
+  autofit() %>%
+  theme_zebra()
+
+```
+
+

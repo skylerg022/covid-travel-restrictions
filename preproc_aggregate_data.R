@@ -40,7 +40,7 @@ covid2 <- covid %>%
   summarize(avg_new_cases = mean(new_cases, na.rm = TRUE),
             avg_new_deaths = mean(new_deaths, na.rm = TRUE),
             mid_people_fully_vaccinated = median(people_fully_vaccinated, na.rm = TRUE),
-            int_travel_controls = mode(int_travel_controls)) %>%
+            int_travel_controls = mode(int_travel_controls) + 1) %>%
   mutate(vaccination_info = ifelse(is.na(mid_people_fully_vaccinated), 0, 1)) %>%
   replace_na(list(mid_people_fully_vaccinated = 0,
                   avg_new_cases = 0,
